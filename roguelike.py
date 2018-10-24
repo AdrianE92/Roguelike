@@ -13,39 +13,23 @@ MAP_HEIGHT = 45
 ROOM_MAX_SIZE = 10
 ROOM_MIN_SIZE = 6
 MAX_ROOMS = 30
+#Field of view
+FOV_ALGO = 'BASIC'
+FOV_LIGHT_WALLS = True
+TORCH_RADIUS = 10
 
 #Set colors
 color_dark_wall = (0, 0, 100)
+color_light_wall = (130, 110, 50)
 color_dark_ground = (50, 50, 150)
-
-class GameObject:
-    #Generic object
-    def __init__(self, x, y, char, color):
-        self.x = x 
-        self.y = y
-        self.char = char
-        self.color = color
-        
-    #Move by the given amount
-    def move(self, dx, dy):
-        #If tile not blocked
-        if not my_map[self.x+dx][self.y+dy].blocked:
-            self.x += dx
-            self.y += dy
-    
-    #Draw the caracter char at position x,y
-    def draw(self):
-        con.draw_char(self.x, self.y, self.char, self.color)
-    
-    #Remove character from game
-    def clear(self):
-        con.draw_char(self.x, self.y, ' ', self.color, bg=None)
+color_light_ground = (200, 180, 50)
 
 class Tile:
     
     def __init__(self, blocked, block_sight = None):
         self.blocked = blocked
         
+        self.explored = False
         #by default, if a tile is blocked, it also blocks sight
         if block_sight is None: 
             block_sight = blocked
@@ -68,52 +52,69 @@ class Rect:
     def intersect(self, other):
         #Returns True if this rectangle intersects with another one
         return (self.x1 <= other.x2 and self.x2 >= other.x1 and 
-                self.y1 <= other.y2 and self.y2 >= other.y1)
+        self.y1 <= other.y2 and self.y2 >= other.y1)
+
+class GameObject:
+    #Generic object
+    def __init__(self, x, y, char, color):
+        self.x = x 
+        self.y = y
+        self.char = char
+        self.color = color
+        
+    #Move by the given amount
+    def move(self, dx, dy):
+        #If tile not blocked
+        if not my_map[self.x+dx][self.y+dy].blocked:
+            self.x += dx
+            self.y += dy
+    
+    #Draw the caracter char at position x,y
+    def draw(self):
+        global visible_tiles
+        
+        if (self.x, self.y) in visible_tiles:
+            con.draw_char(self.x, self.y, self.char, self.color, bg=None)
+    
+    #Remove character from game
+    def clear(self):
+        con.draw_char(self.x, self.y, ' ', self.color, bg=None)
             
-def handle_keys(realtime):
-    global playerx, playery
+def create_room(room):
+    global my_map
     
-    if realtime:
-        keypress = False
-        for event in tdl.event.get():
-            if event.type == 'KEYDOWN':
-                user_input = event
-                keypress = True
-            if not keypress:
-                return
+    for x in range(room.x1+1, room.x2):
+        for y in range(room.y1+1, room.y2):
+            my_map[x][y].blocked = False
+            my_map[x][y].block_sight = False
+            
+def create_h_tunnel(x1, x2, y):
+                global my_map
+                #Create horizontal tunnel 
+                for x in range(min(x1, x2), max(x1, x2)+1):
+                    my_map[x][y].blocked = False
+                    my_map[x][y].block_sight = False
+                    
+def create_v_tunnel(y1, y2, x):
+                        global my_map
+                        #Create vertical tunnel
+                        for y in range(min(y1, y2), max(y1, y2)+1):
+                            my_map[x][y].blocked = False
+                            my_map[x][y].block_sight = False
+
+def is_visible_tile(x, y):
+    global my_map
     
-    else: 
-        #Turn based
-        user_input = tdl.event.key_wait()
-        if user_input.key == 'ENTER' and user_input.alt:
-            #Alt+Enter: toggle fullscreen
-            tdl.set_fullscreen(not tdl.get_fullscreen())
-        
-        elif user_input.key == 'ESCAPE':
-            return True
-        elif user_input.key == 'UP' or user_input.key == 'W':
-            player.move(0, -1)    
-        elif user_input.key == 'DOWN' or user_input.key == 's':
-            player.move(0, 1) 
-        elif user_input.key == 'LEFT' or user_input.key == 'A':
-            player.move(-1, 0) 
-        elif user_input.key == 'RIGHT' or user_input.key == 'D':
-            player.move(1, 0) 
-        
-def render_all():
-    for obj in objects:
-        obj.draw()
-        
-    for y in range(MAP_HEIGHT):
-        for x in range(MAP_WIDTH):
-            wall = my_map[x][y].block_sight
-            if wall:
-                con.draw_char(x, y, None, fg=None, bg=color_dark_wall)
-            else:
-                con.draw_char(x, y, None, fg=None, bg=color_dark_ground)
-    
-    #Blit the contents of 'con' to the root console and present it
-    root.blit(con, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0)
+    if x >= MAP_WIDTH or x < 0:
+        return False
+    elif y >= MAP_HEIGHT or y < 0:
+        return False
+    elif my_map[x][y].blocked == True:
+        return False
+    elif my_map[x][y].block_sight == True:
+        return False
+    else:
+        return True
 
 def make_map():
     global my_map
@@ -177,27 +178,76 @@ def make_map():
             rooms.append(new_room)
             num_rooms += 1
 
-def create_room(room):
-    global my_map
+def render_all():
+    global fov_recompute
+    global visible_tiles
     
-    for x in range(room.x1+1, room.x2):
-        for y in range(room.y1+1, room.y2):
-            my_map[x][y].blocked = False
-            my_map[x][y].block_sight = False
+    if fov_recompute:
+        fov_recompute = False
+        visible_tiles = tdl.map.quickFOV(player.x, player.y, is_visible_tile,
+                                        fov=FOV_ALGO, radius=TORCH_RADIUS,
+                                        lightWalls=FOV_LIGHT_WALLS)
+                                        
+        
+    for y in range(MAP_HEIGHT):
+        for x in range(MAP_WIDTH):
+            visible = (x, y) in visible_tiles
+            wall = my_map[x][y].block_sight
+            
+            if not visible:
+                if my_map[x][y].explored:
+                    if wall:
+                        con.draw_char(x, y, None, fg=None, bg=color_dark_wall)
+                    else:
+                        con.draw_char(x, y, None, fg=None, bg=color_dark_ground)
+            else:
+                if wall:
+                    con.draw_char(x, y, None, fg=None, bg=color_light_wall)
+                else:
+                    con.draw_char(x, y, None, fg=None, bg=color_light_ground)
+                my_map[x][y].explored = True
+    
+    for obj in objects:
+        obj.draw()
+    
+    #Blit the contents of 'con' to the root console and present it
+    root.blit(con, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 0, 0)
 
-def create_h_tunnel(x1, x2, y):
-    global my_map
-    #Create horizontal tunnel 
-    for x in range(min(x1, x2), max(x1, x2)+1):
-        my_map[x][y].blocked = False
-        my_map[x][y].block_sight = False
+def handle_keys(realtime):
+    global playerx, playery
+    global fov_recompute
+    
+    if realtime:
+        keypress = False
+        for event in tdl.event.get():
+            if event.type == 'KEYDOWN':
+                user_input = event
+                keypress = True
+            if not keypress:
+                return
+    
+    else: 
+        #Turn based
+        user_input = tdl.event.key_wait()
+        if user_input.key == 'ENTER' and user_input.alt:
+            #Alt+Enter: toggle fullscreen
+            tdl.set_fullscreen(not tdl.get_fullscreen())
+        
+        elif user_input.key == 'ESCAPE':
+            return True
+        elif user_input.key == 'UP' or user_input.key == 'W':
+            player.move(0, -1)
+            fov_recompute = True    
+        elif user_input.key == 'DOWN' or user_input.key == 's':
+            player.move(0, 1)
+            fov_recompute = True 
+        elif user_input.key == 'LEFT' or user_input.key == 'A':
+            player.move(-1, 0)
+            fov_recompute = True 
+        elif user_input.key == 'RIGHT' or user_input.key == 'D':
+            player.move(1, 0)
+            fov_recompute = True 
 
-def create_v_tunnel(y1, y2, x):
-    global my_map
-    #Create vertical tunnel
-    for y in range(min(y1, y2), max(y1, y2)+1):
-        my_map[x][y].blocked = False
-        my_map[x][y].block_sight = False
 
 
 #####################################
@@ -216,6 +266,7 @@ npc = GameObject(SCREEN_WIDTH//2-5, SCREEN_HEIGHT//2, '@', (255,255,0))
 objects = [npc, player]
             
 make_map()
+fov_recompute = True
 #Keeps the game running until window closes
 while not tdl.event.is_window_closed():
     
