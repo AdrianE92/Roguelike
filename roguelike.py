@@ -1,4 +1,4 @@
-import tdl
+import tdl, colors
 from random import randint
 
 #Set window size and fps
@@ -17,12 +17,14 @@ MAX_ROOMS = 30
 FOV_ALGO = 'BASIC'
 FOV_LIGHT_WALLS = True
 TORCH_RADIUS = 10
+#Set max monsters per room
+MAX_ROOM_MONSTERS = 3
 
 #Set colors
-color_dark_wall = (0, 0, 100)
-color_light_wall = (130, 110, 50)
-color_dark_ground = (50, 50, 150)
-color_light_ground = (200, 180, 50)
+color_dark_wall = colors.darkest_sepia
+color_light_wall = colors.darker_sepia
+color_dark_ground = colors.dark_sepia
+color_light_ground = colors.sepia
 
 class Tile:
     
@@ -56,7 +58,9 @@ class Rect:
 
 class GameObject:
     #Generic object
-    def __init__(self, x, y, char, color):
+    def __init__(self, x, y, char, color, blocks=False):
+        self.name = name
+        self.blocks = blocks
         self.x = x 
         self.y = y
         self.char = char
@@ -173,7 +177,8 @@ def make_map():
                     #First move horizontally, then vertically
                     create_v_tunnel(prev_y, new_y, prev_x)
                     create_h_tunnel(prev_x, new_x, new_y)
-            
+            #add objects to room
+            place_objects(new_room)
             #Append the new room to list
             rooms.append(new_room)
             num_rooms += 1
@@ -248,7 +253,21 @@ def handle_keys(realtime):
             player.move(1, 0)
             fov_recompute = True 
 
-
+def place_objects(room):
+    #choose random number of monsters
+    num_monsters = randint(0, MAX_ROOM_MONSTERS)
+    
+    for i in range(num_monsters):
+        #choose random spot for this monster
+        x = randint(room.x1, room.x2)
+        y = randint(room.y1, room.y2)
+        if randint(0, 100) < 80: #80% chance of getting an orc
+            #create an orc
+            monster = GameObject(x, y, 'o', colors.desaturated_green)
+        else:
+            #create a troll
+            monster = GameObject(x, y, 'T', colors.darker_green)
+        objects.append(monster)
 
 #####################################
 #Initialization & Main Loop         #
@@ -260,8 +279,7 @@ con = tdl.init(SCREEN_WIDTH, SCREEN_HEIGHT)
 
 #Create Player
 player = GameObject(SCREEN_WIDTH//2, SCREEN_HEIGHT//2, '@', (255,255,255))
-#Create NPC
-npc = GameObject(SCREEN_WIDTH//2-5, SCREEN_HEIGHT//2, '@', (255,255,0))
+
 #List of objects
 objects = [npc, player]
             
